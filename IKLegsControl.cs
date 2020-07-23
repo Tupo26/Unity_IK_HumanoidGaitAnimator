@@ -4,20 +4,20 @@ using UnityEngine;
 
 public class IKLegsControl : MonoBehaviour {
 
-    public GameObject SolverLeft;
-    public GameObject SolverRight;
-    public GameObject SolverChest;
+    //Komponentit
+    public GameObject footLeft;
+    public GameObject footRight;
     public GameObject root;
     private CharacterControl Character;
     private Footsteps fsteps;
 
-    public GameObject footLeft;
-    private Quaternion footLeftO;
-    public GameObject footRight;
-    private Quaternion footRightO;
+    //Ratkaisijat
+    public GameObject SolverLeft;
+    public GameObject SolverRight;
+    public GameObject SolverChest;
 
     //STATES
-    public string STATE = "IDLE";
+    public string STATE = "IDLE"; //IDLE, MOVING, AIR
     public string HILL = "EVEN"; // EVEN, UPHILL, DOWNHILL
     private bool AdjustToA = false;
 
@@ -35,11 +35,13 @@ public class IKLegsControl : MonoBehaviour {
     private Vector3 chestO;
     private Vector2 ShoulderPos;
     private Vector2 HipPos;
+    private Quaternion footLeftO;
+    private Quaternion footRightO;
 
     //Speed
-    private  float speed = 0;
-    private float rest_speed = 0;
-    [HideInInspector] public bool leftSupport = true;
+    public float speed = 0;
+    public float rest_speed = 0;
+    public bool leftSupport = true;
     private bool running = false;
 
     private Vector2 anchorLeft;
@@ -54,15 +56,16 @@ public class IKLegsControl : MonoBehaviour {
     private Vector2 MoveB;
     private Vector2 MoveC;
 
-    //SCALEX
+    //Hahmo
+    public float CharacterHeight = 0.64f;
     private float CX ;
 
-    //STEP
-    [Range(-100.0f, 100.0f)] public float xStepAdjust = 0;
-    private float restSpeed = 10f;
+    //STEP - Adjust
+    [Range(-100.0f, 100.0f)] public float xStepAdjust = 0;//Askeleen etsintä pituus
+    [Range(0.0f, 10.0f)] public float restSpeed = 10f;
     private float stepFrequency = 10f;
 
-    //STEP - FREQUENCY
+    //STEP - Freq
     [Range(-100f, 1000.0f)] public float stepFreqWalk = 500;
     [Range(-100f, 1000.0f)] public float stepFreqHill = 400;
     [Range(-100f, 1000.0f)] public float stepFreqBack = 200;
@@ -72,7 +75,9 @@ public class IKLegsControl : MonoBehaviour {
     [Range(0.1f, 2.0f)] public float heelLift = 0.5f;
 
     //STEP - Lenghts
-    [Range(-2.0f, 2.0f)] public float lenStep = 0.0f;
+    [Range(-2.0f, 2.0f)] public float lenStep = 0.0f;//Askeleen pituus (Mäki - takaperin)
+    [Range(-100.0f, 100.0f)] public float xRestStepPos = 0;//Viimeinen lepoon askeleen etsintä pituus
+    [Range(2.0f, 0.0f)] public float hillAdjustY = 0.6f;
 
     //LIMITS
     private float bottomDis = 0.64f;
@@ -97,8 +102,8 @@ public class IKLegsControl : MonoBehaviour {
 
         chestO = SolverChest.transform.localPosition;
 
-        footLeftO = footLeft.transform.rotation;
-        footRightO = footRight.transform.rotation;
+        footLeftO = footLeft.transform.localRotation;
+        footRightO = footRight.transform.localRotation;
 
     }
 
@@ -106,6 +111,7 @@ public class IKLegsControl : MonoBehaviour {
     void Update() {
 
         //Debug
+        /*
         if (Input.GetButtonDown("Up")) {
             SolverChest.transform.position = new Vector2(SolverChest.transform.position.x, SolverChest.transform.position.y + 0.05f);
             rootY += 0.05f;
@@ -115,21 +121,20 @@ public class IKLegsControl : MonoBehaviour {
             root.transform.position = new Vector2(SolverChest.transform.position.x, SolverChest.transform.position.y - 0.05f);
             rootY -= 0.05f;
             rootAdjust -= 1;
-        }
+        }*/
 
+
+        //CX
         CX = (1 / Character.GetLocalScaleX()) * Character.ScaleX;
-
-        //BackupCheck
-        RaycastHit2D groundhitbb = Physics2D.Raycast(transform.position, Vector3.down, 1.5f, 1 << LayerMask.NameToLayer("Ground"));
-        Debug.DrawLine(transform.position, groundhitbb.point, Color.blue);
 
         // ON GROUND Walking
         if (Character.moveInput.x == 0)
             STATE = "IDLE";
         else
             STATE = "MOVING";
-        if (Character.IsLanded()) {
 
+        if (Character.IsLanded()) {
+            //ASKELTIHEYS
             if (Character.move.x < 0 && CX > 0 || Character.move.x > 0 && CX < 0) {
                 if (getAngle() == 0)
                     stepFrequency = 100 - Mathf.Abs(Character.move.x) * stepFreqBack;
@@ -156,20 +161,20 @@ public class IKLegsControl : MonoBehaviour {
                 if (Character.move.x < 0 && CX > 0 || Character.move.x > 0 && CX < 0) {
                     if (HILL == "LEFTDOWNHILL") {
                         if(CX > 0)
-                            CheckFootStep(new Vector3(lenStep * CX + Character.move.x, 0));
+                            FindBackwardStep(new Vector3(lenStep * CX + Character.move.x, 0));
                         else
-                            CheckFootStep(new Vector3(-0.5f * CX, 0));
+                            FindBackwardStep(new Vector3(-0.5f * CX, 0));
 
                     }
                     else if (HILL == "RIGHTDOWNHILL") {
                         if (CX > 0)
-                            CheckFootStep(new Vector3(-0.5f * CX, 0));
+                            FindBackwardStep(new Vector3(-0.5f * CX, 0));
                         else
-                            CheckFootStep(new Vector3(lenStep * CX + Character.move.x, 0));
+                            FindBackwardStep(new Vector3(lenStep * CX + Character.move.x, 0));
 
                     }
                     else {
-                        CheckFootStep(new Vector3(-0.5f * CX, 0));
+                        FindBackwardStep(new Vector3(-0.5f * CX, 0));
                     }
 
                 }
@@ -200,41 +205,36 @@ public class IKLegsControl : MonoBehaviour {
                         }
                     }
                 }
-
-               
                     
                 if (leftSupport) {
-                    //SolverLeft.transform.position = new Vector2(newvec.x, newvec.y);
                     SolverLeft.transform.position = Vector2.LerpUnclamped(SolverLeft.transform.position, new Vector2(newvec.x, newvec.y), 0.5f);
                     SolverRight.transform.position = new Vector2(anchorRight.x, anchorRight.y);
 
-                    /*float jalka = GetNormal(SolverRight);
-                    Quaternion nrot = Quaternion.Euler(new Vector3(0, 0, 0));
-                    Quaternion crot = Quaternion.Euler(new Vector3(0, 0, 0));
-                    if (CX > 0)
-                        footRight.transform.rotation = Quaternion.Lerp(footRight.transform.rotation, footRightO, 0.1f);
-                    else
-                        footRight.transform.rotation = Quaternion.Lerp(footRight.transform.rotation, Quaternion.Inverse(footRightO), 0.1f);*/
+                    Vector2 jalkanormal = GetNormalVector(SolverRight);
+                    jalkanormal = Quaternion.Euler(0, 0, -90) * jalkanormal;
+                    float a = Mathf.Atan2(jalkanormal.y, jalkanormal.x) * Mathf.Rad2Deg;
+                    Quaternion drot = Quaternion.AngleAxis(a, Vector3.forward);
+                    footRight.transform.rotation = drot;
 
+                    footLeft.transform.localRotation = footLeftO;
                 }
                 else {
-                    //SolverRight.transform.position = new Vector2(newvec.x, newvec.y);
                     SolverRight.transform.position = Vector2.LerpUnclamped(SolverRight.transform.position, new Vector2(newvec.x, newvec.y), 0.5f);
                     SolverLeft.transform.position = new Vector2(anchorLeft.x, anchorLeft.y);
 
- 
-                    /*float jalka = GetNormal(SolverLeft);
-                    Quaternion nrot = Quaternion.Euler(new Vector3(0,0,0));
-                    Quaternion crot = Quaternion.Euler(new Vector3(0, 0, 0));
-                    if(CX > 0)
-                        footLeft.transform.rotation = Quaternion.Lerp(footLeft.transform.rotation, footLeftO, 0.1f);
-                    else
-                        footLeft.transform.rotation = Quaternion.Lerp(footLeft.transform.rotation, Quaternion.Inverse(footLeftO), 0.1f);*/
+                    Vector2 jalkanormal = GetNormalVector(SolverLeft);
+                    jalkanormal = Quaternion.Euler(0, 0, -90) * jalkanormal;
+                    float a = Mathf.Atan2(jalkanormal.y, jalkanormal.x) * Mathf.Rad2Deg;
+                    Quaternion drot = Quaternion.AngleAxis(a, Vector3.forward);
+                    footLeft.transform.rotation = drot;
+
+                    footRight.transform.localRotation = footRightO;
+
                 }
 
+                //Nosto
                 MoveB = new Vector2(MoveC.x - 0.2f*CX, MoveC.y + heelLift + Mathf.Abs(Character.move.x)*5);
 
-                //Switch Support
                 //FORWARDS
                 if (speed >= 1) {
                     speed = 0;
@@ -275,37 +275,32 @@ public class IKLegsControl : MonoBehaviour {
             }
 
             else if (STATE == "IDLE") {
-                //STOPPING
+                //PYSÄHTYMINEN
                 if (speed < 1) {
+                    FindFootStep(Vector3.zero); //Viedään jo liikellä oleva askel kehon eteen
                     Vector2 newvec = Walking(restSpeed);
                     if (leftSupport) {
-
-                        FindShortFootStep(ref SolverLeft);
                         SolverLeft.transform.position = new Vector2(newvec.x, newvec.y);
                         SolverRight.transform.position = new Vector2(anchorRight.x, anchorRight.y);
                         restA = new Vector2(anchorRight.x, anchorRight.y);
-                        restC = CheckFootStepRest(new Vector2(0, 0));
-                        restB = new Vector2(restC.x - 0.1f, restC.y + 0.2f);
-                        rest_speed = 0;
                     }
                     else {
-                        FindShortFootStep(ref SolverLeft);
                         SolverRight.transform.position = new Vector2(newvec.x, newvec.y);
                         SolverLeft.transform.position = new Vector2(anchorLeft.x, anchorLeft.y);
                         restA = new Vector2(anchorLeft.x, anchorLeft.y);
-                        restC = CheckFootStepRest(new Vector2(0, 0));
-                        restB = new Vector2(restC.x - 0.1f, restC.y + 0.05f);
-                        rest_speed = 0;
                     }
+                    restC = FindFootstepRest(new Vector2(xRestStepPos * CX, 0));
+                    restB = new Vector2(restC.x - 0.1f, restC.y + 0.2f);
+                    rest_speed = 0;
 
                 }
-                //TO REST
+                //LEPOON
                 else {
                     //Debug.DrawLine(restA, restB, Color.white);
                     //Debug.DrawLine(restB, restC, Color.yellow);
                    
                     if (rest_speed < 1) {
-                        Vector2 newvec = Walking_Rest(restSpeed, restA, restB, restC);
+                        Vector2 newvec = WalkingToRest(restSpeed, restA, restB, restC + new Vector2(xRestStepPos*CX, 0));
                         //Debug.Log("V:" + newvec.x + "," + newvec.y);
                         if (!leftSupport) {;
                             SolverLeft.transform.position = new Vector2(newvec.x, newvec.y);
@@ -321,9 +316,27 @@ public class IKLegsControl : MonoBehaviour {
                         }
                     }
                 }
+
+                //Jalkapohjien asettaminen
+                Vector2 jalkanormal;
+                float a;
+                Quaternion drot;
+                //Oikea jalka
+                jalkanormal = GetNormalVector(SolverRight);
+                jalkanormal = Quaternion.Euler(0, 0, -90) * jalkanormal;
+                a = Mathf.Atan2(jalkanormal.y, jalkanormal.x) * Mathf.Rad2Deg;
+                drot = Quaternion.AngleAxis(a, Vector3.forward);
+                footRight.transform.rotation = drot;
+                //Vasen jalka
+                jalkanormal = GetNormalVector(SolverLeft);
+                jalkanormal = Quaternion.Euler(0, 0, -90) * jalkanormal;
+                a = Mathf.Atan2(jalkanormal.y, jalkanormal.x) * Mathf.Rad2Deg;
+                drot = Quaternion.AngleAxis(a, Vector3.forward);
+                footLeft.transform.rotation = drot;
+                
             }
         }
-        //OFF GROUND
+        //ILMASSA
         else {
 
             STATE = "AIR";
@@ -354,9 +367,11 @@ public class IKLegsControl : MonoBehaviour {
                     SolverRight.transform.localPosition = Vector2.LerpUnclamped(SolverRight.transform.localPosition, newpos1, 0.5f);
                 }
                 AdjustToA = false;
+                footLeft.transform.localRotation = footLeftO;
+                footRight.transform.localRotation = footRightO;
             }
             else {
-                //Ledgegrab
+                //REUNAAN TARTUMINEN
                 RaycastHit2D ledge = Physics2D.Raycast(transform.position - new Vector3(0, 0.3f), Vector2.right * CX, 1 << LayerMask.NameToLayer("Ground"));
                 if (ledge) {
                     SolverLeft.transform.position = Vector2.LerpUnclamped(SolverLeft.transform.position, ledge.point, 0.5f);
@@ -366,7 +381,7 @@ public class IKLegsControl : MonoBehaviour {
             
         }
 
-        //ROOT
+        //ROOT ADJUST
         if(rootForceX > 0) {
             rootForceX -= Time.deltaTime * rootForceDecay;
             if (rootForceX < 0)
@@ -389,7 +404,7 @@ public class IKLegsControl : MonoBehaviour {
 
 
 
-        //CHEST
+        //CHEST ADJUST
         Vector2 newpose;
        if (AdjustToA) {
             newpose = new Vector2(rootX + rootForceX, rootY + rootForceY + gaitFix + bottomDis + rootAdjustOnce);
@@ -420,10 +435,12 @@ public class IKLegsControl : MonoBehaviour {
     public Vector2 Walking (float t)
     {
         speed += t * Time.deltaTime;
+        if (speed > 1)
+            speed = 1;
         gaitFix = (4 * (-((speed - 0.5f) * (speed - 0.5f)) + 0.25f))/ hipRaise;
         return CalculateBezierPoint(speed);
     }
-    public Vector2 Walking_Rest(float t, Vector2 _A, Vector2 _B, Vector2 _C)
+    public Vector2 WalkingToRest(float t, Vector2 _A, Vector2 _B, Vector2 _C)
     {
         rest_speed += t * Time.deltaTime;
         if (rest_speed > 1)
@@ -432,123 +449,45 @@ public class IKLegsControl : MonoBehaviour {
         return CalculateBezierPoint_Rest(rest_speed, _A, _B, _C);
     }
 
-    public Vector2 FindFootStep(ref GameObject Solver)
-    {
-        RaycastHit2D groundhit;
-        //Solver.transform.localPosition = new Vector3(0, -2f);
-
-        AdjustToA = true;
-        groundhit = Physics2D.Raycast(transform.position + new Vector3(0.4f*CX, 0), Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
-        if (groundhit) {
-
-            AdjustToA = false;
-            MoveC = groundhit.point;
-
-
-
-            Debug.DrawLine(transform.position + new Vector3(0, 0),
-                groundhit.point,
-                Color.green);
-            return groundhit.point;
-        }
-
-        return new Vector2(0, 0);
-        
-    }
-
-    public Vector2 FindShortFootStep(ref GameObject Solver)
-    {
-        RaycastHit2D groundhit;
-        //Solver.transform.localPosition = new Vector3(0, -2f);
-        AdjustToA = true;
-        groundhit = Physics2D.Raycast(transform.position + new Vector3(0.1f * CX, 0), Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
-        if (groundhit) {
-
-            AdjustToA = false;
-            MoveC = groundhit.point;
-
-
-
-            Debug.DrawLine(transform.position + new Vector3(0, 0),
-                groundhit.point,
-                Color.green);
-            return groundhit.point;
-        }
-
-        return new Vector2(0, 0);
-
-    }
-
-    public Vector2 FindLongFootStep(ref GameObject Solver)
-    {
-        RaycastHit2D groundhit;
-        //Solver.transform.localPosition = new Vector3(0, -2f);
-        AdjustToA = true;
-        groundhit = Physics2D.Raycast(transform.position + new Vector3(0.55f * CX, 0), Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
-        if (groundhit) {
-
-            AdjustToA = false;
-            MoveC = groundhit.point;
-
-
-
-            Debug.DrawLine(transform.position + new Vector3(0, 0),
-                groundhit.point,
-                Color.green);
-            return groundhit.point;
-        }
-
-        return new Vector2(0, 0);
-
-    }
-
     public Vector2 FindFootStep(Vector3 v)
     {
         RaycastHit2D groundhit;
         AdjustToA = true;
-        groundhit = Physics2D.Raycast(transform.position + v + new Vector3(xStepAdjust, 0) * CX , Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
+        groundhit = Physics2D.Raycast(transform.position + v + new Vector3(xStepAdjust, 0) * CX , Vector3.down, hillAdjustY, 1 << LayerMask.NameToLayer("Ground"));
         if (groundhit) {
-
             AdjustToA = false;
             MoveC = groundhit.point;
-
-            Debug.DrawLine(transform.position + new Vector3(0, 0),
-                groundhit.point,
-                Color.green);
+            Debug.DrawLine(transform.position + new Vector3(0, 0), groundhit.point, Color.green);
             return groundhit.point;
         }
 
-        return new Vector2(transform.position.x, transform.position.y - 0.64f);
+        return new Vector2(transform.position.x, transform.position.y - CharacterHeight);
     }
 
-    public Vector2 CheckFootStep(Vector3 v)
+    public Vector2 FindBackwardStep(Vector3 v)
     {
         RaycastHit2D groundhit;
         AdjustToA = true;
-        groundhit = Physics2D.Raycast(transform.position + v, Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
+        groundhit = Physics2D.Raycast(transform.position + v, Vector3.down, hillAdjustY, 1 << LayerMask.NameToLayer("Ground"));
         if (groundhit) {
             AdjustToA = false;
             MoveA = groundhit.point;
-            Debug.DrawLine(transform.position + new Vector3(0, 0),
-                groundhit.point,
-                Color.green);
+            Debug.DrawLine(transform.position + new Vector3(0, 0),groundhit.point, Color.green);
             return groundhit.point;
         }
 
-        return new Vector2(transform.position.x, transform.position.y - 0.64f);
+        return new Vector2(transform.position.x, transform.position.y - CharacterHeight);
     }
 
-    public Vector2 CheckFootStepRest(Vector3 v)
+    public Vector2 FindFootstepRest(Vector3 v)
     {
         RaycastHit2D groundhit;
         AdjustToA = true;
-        groundhit = Physics2D.Raycast(transform.position + v, Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
+        groundhit = Physics2D.Raycast(transform.position + v, Vector3.down, hillAdjustY, 1 << LayerMask.NameToLayer("Ground"));
         if (groundhit) {
             AdjustToA = false;
             MoveA = groundhit.point;
-            Debug.DrawLine(transform.position + new Vector3(0, 0),
-                groundhit.point,
-                Color.green);
+            Debug.DrawLine(transform.position + new Vector3(0, 0), groundhit.point, Color.green);
             return groundhit.point;
         }
         else {
@@ -611,20 +550,22 @@ public class IKLegsControl : MonoBehaviour {
             return;
         }
         else {
-            RaycastHit2D groundhit = Physics2D.Raycast(transform.position, Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
+            RaycastHit2D groundhit = Physics2D.Raycast(transform.position, Vector3.down, hillAdjustY, 1 << LayerMask.NameToLayer("Ground"));
             if (groundhit) {
                 bottomDis = 0.6f - groundhit.distance;
             }
-            RaycastHit2D groundhitleft = Physics2D.Raycast(transform.position - new Vector3(-0.4f, 0, 0), Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
+            RaycastHit2D groundhitleft = Physics2D.Raycast(transform.position - new Vector3(-0.4f, 0, 0), Vector3.down, hillAdjustY, 1 << LayerMask.NameToLayer("Ground"));
             if (groundhitleft) {
                 if (0.6f - groundhitleft.distance < bottomDis)
                     bottomDis = 0.6f - groundhitleft.distance;
             }
-            RaycastHit2D groundhitright = Physics2D.Raycast(transform.position - new Vector3(0.4f, 0, 0), Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
+            RaycastHit2D groundhitright = Physics2D.Raycast(transform.position - new Vector3(0.4f, 0, 0), Vector3.down, hillAdjustY, 1 << LayerMask.NameToLayer("Ground"));
             if (groundhitright) {
                 if (0.6f - groundhitright.distance < bottomDis)
                     bottomDis = 0.6f - groundhitright.distance;
             }
+            Debug.DrawLine(transform.position - new Vector3(-0.4f, 0, 0), groundhitleft.point, Color.green);
+            Debug.DrawLine(transform.position - new Vector3(0.4f, 0, 0), groundhitright.point, Color.green);
         }
 
     }
@@ -655,6 +596,7 @@ public class IKLegsControl : MonoBehaviour {
     public void LiftSolvers()
     {
         RaycastHit2D groundhit;
+        //Jos maata on hahmon keskellä
         groundhit = Physics2D.Raycast(transform.position + new Vector3(0, 1), Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
         if (groundhit) {
 
@@ -667,6 +609,7 @@ public class IKLegsControl : MonoBehaviour {
             MoveA = groundhit.point;
         }
         else {
+            //jos maata on hahmon vasemmalla puolella
             groundhit = Physics2D.Raycast(transform.position + new Vector3(-0.4f, 1), Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
             if (groundhit) {
 
@@ -679,6 +622,7 @@ public class IKLegsControl : MonoBehaviour {
                 MoveA = groundhit.point;
             }
             else {
+                //jos maata on hahmon oikealla puolella
                 groundhit = Physics2D.Raycast(transform.position + new Vector3(0.4f, 1), Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
                 if (groundhit) {
 
@@ -735,10 +679,6 @@ public class IKLegsControl : MonoBehaviour {
         }
     }
 
-    public void LinInt()
-    {
-
-    }
 
     public float GetNormal(GameObject o)
     {
@@ -748,6 +688,15 @@ public class IKLegsControl : MonoBehaviour {
             return a;
         }
         return 0;
+    }
+
+    public Vector3 GetNormalVector(GameObject o)
+    {
+        RaycastHit2D ray = Physics2D.Raycast(o.transform.position, Vector2.down);
+        if (ray) {
+            return ray.normal;
+        }
+        return Vector3.zero;
     }
 
     //OUTPUT
