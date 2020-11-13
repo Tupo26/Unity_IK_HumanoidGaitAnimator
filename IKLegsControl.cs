@@ -1,15 +1,18 @@
-﻿using System.Collections;
+﻿using Assets;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+
+[RequireComponent(typeof(IKCharacterAdapter))]
 
 public class IKLegsControl : MonoBehaviour {
 
     //Komponentit
-    public GameObject footLeft;
-    public GameObject footRight;
     public GameObject root;
     private CharacterControl Character;
     private Footsteps fsteps;
+    private IFootAdjustment IK_feet;
+    private IFootAdjustment Dfeet = new DeAdjustFeet();
 
     //Ratkaisijat
     public GameObject SolverLeft;
@@ -17,8 +20,27 @@ public class IKLegsControl : MonoBehaviour {
     public GameObject SolverChest;
 
     //STATES
-    public string STATE = "IDLE"; //IDLE, MOVING, AIR
-    public string HILL = "EVEN"; // EVEN, UPHILL, DOWNHILL
+    public enum STATES
+    {
+        Idle,
+        Moving,
+        Air
+    }
+    public enum HILL_LEVEL
+    {
+        Even,
+        LeftDownHill,
+        RightDownhill
+    }
+    public enum SIMULATE_LEGS
+    {
+        ONLY_LEFT,
+        ONLY_RIGHT,
+        BOTH_SIMULTANEOUS,
+        BOTH_ALTERNATE
+    }
+    public STATES STATE = STATES.Idle; //IDLE, MOVING, AIR
+    public HILL_LEVEL HILL = HILL_LEVEL.Even; // EVEN, UPHILL, DOWNHILL
     private bool AdjustToA = false;
 
     //ROOT
@@ -35,8 +57,6 @@ public class IKLegsControl : MonoBehaviour {
     private Vector3 chestO;
     private Vector2 ShoulderPos;
     private Vector2 HipPos;
-    private Quaternion footLeftO;
-    private Quaternion footRightO;
 
     //Speed
     public float speed = 0;
@@ -58,10 +78,11 @@ public class IKLegsControl : MonoBehaviour {
 
     //Hahmo
     public float CharacterHeight = 0.64f;
-    private float CX ;
+    public float CX ;
 
     //STEP - Adjust
-    [Range(-100.0f, 100.0f)] public float xStepAdjust = 0;//Askeleen etsintä pituus
+    [Range(-10.0f, 10.0f)] public float searchStepAdjust = 0;//Askeleen etsintä pituus
+    [Range(-10.0f, 10.0f)] public float xStepAdjust = 0;
     [Range(0.0f, 10.0f)] public float restSpeed = 10f;
     private float stepFrequency = 10f;
 
@@ -87,7 +108,11 @@ public class IKLegsControl : MonoBehaviour {
 	void Start () {
         Character = GetComponent<CharacterControl>();
         fsteps = GetComponent<Footsteps>();
-        
+        IK_feet = GetComponent<IKFeetAdjust>();
+        if(IK_feet == null) {
+            IK_feet = Dfeet;    
+        }
+
         rootX = root.transform.localPosition.x;
         rootY = root.transform.localPosition.y;
         
@@ -101,9 +126,6 @@ public class IKLegsControl : MonoBehaviour {
             MoveA = anchorRight;
 
         chestO = SolverChest.transform.localPosition;
-
-        footLeftO = footLeft.transform.localRotation;
-        footRightO = footRight.transform.localRotation;
 
     }
 
@@ -129,9 +151,9 @@ public class IKLegsControl : MonoBehaviour {
 
         // ON GROUND Walking
         if (Character.moveInput.x == 0)
-            STATE = "IDLE";
+            STATE = STATES.Idle;
         else
-            STATE = "MOVING";
+            STATE = STATES.Moving;
 
         if (Character.IsLanded()) {
             //ASKELTIHEYS
@@ -146,27 +168,20 @@ public class IKLegsControl : MonoBehaviour {
                 stepFrequency = 100 - Mathf.Abs(Character.move.x) * stepFreqWalk;
             else
                 stepFrequency = 100 - Mathf.Abs(Character.move.x) * stepFreqHill;
+            //
 
-
-            if (STATE == "MOVING") {
-
-                //ASKELEEN Lasku
-                if(Character.maxSpeed * CX == Character.move.x)
-                    running = true;
-                 else 
-                    running = false;
-                
-                Vector2 newvec = Walking(Character.move.x * stepFrequency * CX);
-                //TAAKSEPÄIN
+            if (STATE == STATES.Moving) {
+                //ASKELEEN LASKEUTUMISPISTEEN ENNAKOINTI
+                //TAKAPERIN KÄVELY
                 if (Character.move.x < 0 && CX > 0 || Character.move.x > 0 && CX < 0) {
-                    if (HILL == "LEFTDOWNHILL") {
+                    if (HILL == HILL_LEVEL.LeftDownHill) {
                         if(CX > 0)
                             FindBackwardStep(new Vector3(lenStep * CX + Character.move.x, 0));
                         else
                             FindBackwardStep(new Vector3(-0.5f * CX, 0));
 
                     }
-                    else if (HILL == "RIGHTDOWNHILL") {
+                    else if (HILL == HILL_LEVEL.RightDownhill) {
                         if (CX > 0)
                             FindBackwardStep(new Vector3(-0.5f * CX, 0));
                         else
@@ -178,64 +193,48 @@ public class IKLegsControl : MonoBehaviour {
                     }
 
                 }
-                //ETEENPÄIN
+                //ETUPERIN KÄVELY
                 else {
-                    if (getAngle() == 0) {
-                        if (running)
-                            FindFootStep(new Vector3((0.55f + Mathf.Abs(Character.move.x) * 2) * CX, 0));
+                    if (getAngle() == 0) {//Tasainen maasto
+                        if (Character.maxSpeed * CX == Character.move.x)//Juokseeko
+                            FindFootStep(new Vector3(((0 + 0.55f) + Mathf.Abs(Character.move.x) * 2) * CX, 0));
                         else
-                            FindFootStep(new Vector3((0.4f + Mathf.Abs(Character.move.x) * 2) * CX, 0));
+                            FindFootStep(new Vector3(((0 + 0.4f) + Mathf.Abs(Character.move.x) * 2) * CX, 0));
                     }  
-                    else {
-                        if (HILL == "LEFTDOWNHILL" && Character.move.x < 0) {
-                            FindFootStep(new Vector3((0.1f + Mathf.Abs(Character.move.x)*2) * CX , 0));
+                    else {//Kaalteva taso   
+                        if (HILL == HILL_LEVEL.LeftDownHill && Character.move.x < 0 || HILL == HILL_LEVEL.RightDownhill && Character.move.x > 0) {//Ylämäki
+                            FindFootStep(new Vector3(((0 + 0.1f) + Mathf.Abs(Character.move.x)*2) * CX , 0));
                         }
-                        else if (HILL == "RIGHTDOWNHILL" && Character.move.x > 0) {
-                            FindFootStep(new Vector3((0.1f + Mathf.Abs(Character.move.x)*2) * CX, 0));
-                        }
-                        else if (HILL == "LEFTDOWNHILL" && Character.move.x > 0) {
-                            FindFootStep(new Vector3((0.55f + Mathf.Abs(Character.move.x) * 2) * CX, 0));
-
-                        }
-                        else if (HILL == "RIGHTDOWNHILL" && Character.move.x < 0) {
-                            FindFootStep(new Vector3((0.55f + Mathf.Abs(Character.move.x) * 2) * CX, 0));
+                        else if (HILL == HILL_LEVEL.LeftDownHill && Character.move.x > 0 || HILL == HILL_LEVEL.RightDownhill && Character.move.x < 0) {//Alamäki
+                            FindFootStep(new Vector3(((0 + 0.55f) + Mathf.Abs(Character.move.x) * 2) * CX, 0));
                         }
                         else {
-                            FindFootStep(new Vector3((0.4f + Mathf.Abs(Character.move.x) * 2) * CX, 0));
+                            FindFootStep(new Vector3(((0 + 0.4f) + Mathf.Abs(Character.move.x) * 2) * CX, 0));
                         }
                     }
                 }
-                    
+
+                //KÄVELYN SIMULOINTI
+                Vector2 newvec = Walking(Character.move.x * stepFrequency * CX);
+
                 if (leftSupport) {
                     SolverLeft.transform.position = Vector2.LerpUnclamped(SolverLeft.transform.position, new Vector2(newvec.x, newvec.y), 0.5f);
                     SolverRight.transform.position = new Vector2(anchorRight.x, anchorRight.y);
-
-                    Vector2 jalkanormal = GetNormalVector(SolverRight);
-                    jalkanormal = Quaternion.Euler(0, 0, -90) * jalkanormal;
-                    float a = Mathf.Atan2(jalkanormal.y, jalkanormal.x) * Mathf.Rad2Deg;
-                    Quaternion drot = Quaternion.AngleAxis(a, Vector3.forward);
-                    footRight.transform.rotation = drot;
-
-                    footLeft.transform.localRotation = footLeftO;
+                    IK_feet.ResetLeftFoot();
+                    IK_feet.AdjustRight();
                 }
                 else {
                     SolverRight.transform.position = Vector2.LerpUnclamped(SolverRight.transform.position, new Vector2(newvec.x, newvec.y), 0.5f);
                     SolverLeft.transform.position = new Vector2(anchorLeft.x, anchorLeft.y);
-
-                    Vector2 jalkanormal = GetNormalVector(SolverLeft);
-                    jalkanormal = Quaternion.Euler(0, 0, -90) * jalkanormal;
-                    float a = Mathf.Atan2(jalkanormal.y, jalkanormal.x) * Mathf.Rad2Deg;
-                    Quaternion drot = Quaternion.AngleAxis(a, Vector3.forward);
-                    footLeft.transform.rotation = drot;
-
-                    footRight.transform.localRotation = footRightO;
+                    IK_feet.ResetRightFoot();
+                    IK_feet.AdjustLeft();
 
                 }
 
                 //Nosto
                 MoveB = new Vector2(MoveC.x - 0.2f*CX, MoveC.y + heelLift + Mathf.Abs(Character.move.x)*5);
 
-                //FORWARDS
+                //FORWARDS - ASKELVALMIS
                 if (speed >= 1) {
                     speed = 0;
                     if (leftSupport) {
@@ -256,7 +255,6 @@ public class IKLegsControl : MonoBehaviour {
                     MoveA.x *= CX;
                     MoveA.x += transform.position.x;
                     leftSupport = !leftSupport;
-                    fsteps.playFootstep();
                 }
                 //BACKWARDS
                 else if (speed <= 0) {
@@ -270,11 +268,10 @@ public class IKLegsControl : MonoBehaviour {
                         MoveC = anchorLeft;
                     }
                     leftSupport = !leftSupport;
-                    fsteps.playFootstep();
                 }
             }
 
-            else if (STATE == "IDLE") {
+            else if (STATE == STATES.Idle) {
                 //PYSÄHTYMINEN
                 if (speed < 1) {
                     FindFootStep(Vector3.zero); //Viedään jo liikellä oleva askel kehon eteen
@@ -318,37 +315,21 @@ public class IKLegsControl : MonoBehaviour {
                 }
 
                 //Jalkapohjien asettaminen
-                Vector2 jalkanormal;
-                float a;
-                Quaternion drot;
-                //Oikea jalka
-                jalkanormal = GetNormalVector(SolverRight);
-                jalkanormal = Quaternion.Euler(0, 0, -90) * jalkanormal;
-                a = Mathf.Atan2(jalkanormal.y, jalkanormal.x) * Mathf.Rad2Deg;
-                drot = Quaternion.AngleAxis(a, Vector3.forward);
-                footRight.transform.rotation = drot;
-                //Vasen jalka
-                jalkanormal = GetNormalVector(SolverLeft);
-                jalkanormal = Quaternion.Euler(0, 0, -90) * jalkanormal;
-                a = Mathf.Atan2(jalkanormal.y, jalkanormal.x) * Mathf.Rad2Deg;
-                drot = Quaternion.AngleAxis(a, Vector3.forward);
-                footLeft.transform.rotation = drot;
+                IK_feet.AdjustBoth();
                 
             }
         }
         //ILMASSA
         else {
-
-            STATE = "AIR";
+            Vector2 newpos1;
+            Vector2 newpos2;
+            STATE = STATES.Air;
             float moveY = Character.move.y;
+
             if (!Character.ledgeGrabbed) {
                 if (moveY > 0)
                     moveY = 0;
                 if (leftSupport) {
-
-                    Vector2 newpos1;
-                    Vector2 newpos2;
-
                     newpos1 = new Vector2(SolverRight.transform.position.x + Character.move.x / 4, SolverRight.transform.position.y + moveY);
                     newpos2 = new Vector2(SolverLeft.transform.localPosition.x * 0.3f, (SolverLeft.transform.localPosition.y) * 0.2f - 1);
 
@@ -356,10 +337,6 @@ public class IKLegsControl : MonoBehaviour {
                     SolverLeft.transform.localPosition = Vector2.LerpUnclamped(SolverLeft.transform.localPosition, newpos2, 0.5f);
                 }
                 else {
-                    Vector2 newpos1;
-                    Vector2 newpos2;
-
-
                     newpos2 = new Vector2(SolverLeft.transform.position.x + Character.move.x / 4, SolverLeft.transform.position.y + moveY);
                     newpos1 = new Vector2(SolverRight.transform.localPosition.x * 0.3f, (SolverRight.transform.localPosition.y) * 0.2f - 1);
 
@@ -367,8 +344,7 @@ public class IKLegsControl : MonoBehaviour {
                     SolverRight.transform.localPosition = Vector2.LerpUnclamped(SolverRight.transform.localPosition, newpos1, 0.5f);
                 }
                 AdjustToA = false;
-                footLeft.transform.localRotation = footLeftO;
-                footRight.transform.localRotation = footRightO;
+                IK_feet.ResetFeetOriantion();
             }
             else {
                 //REUNAAN TARTUMINEN
@@ -405,7 +381,10 @@ public class IKLegsControl : MonoBehaviour {
 
 
         //CHEST ADJUST
+        //-2.25f MAX DOWN FORCE
+
         Vector2 newpose;
+        //Tasapainottele reunalla, jos askeletta ei löydy edestä
        if (AdjustToA) {
             newpose = new Vector2(rootX + rootForceX, rootY + rootForceY + gaitFix + bottomDis + rootAdjustOnce);
             if (CX > 0 && root.transform.position.x > MoveC.x)
@@ -453,7 +432,7 @@ public class IKLegsControl : MonoBehaviour {
     {
         RaycastHit2D groundhit;
         AdjustToA = true;
-        groundhit = Physics2D.Raycast(transform.position + v + new Vector3(xStepAdjust, 0) * CX , Vector3.down, hillAdjustY, 1 << LayerMask.NameToLayer("Ground"));
+        groundhit = Physics2D.Raycast(transform.position + v + new Vector3(searchStepAdjust, 0) * CX , Vector3.down, hillAdjustY, 1 << LayerMask.NameToLayer("Ground"));
         if (groundhit) {
             AdjustToA = false;
             MoveC = groundhit.point;
@@ -550,6 +529,7 @@ public class IKLegsControl : MonoBehaviour {
             return;
         }
         else {
+            //0.6f = Hahmon pituus jalasta lantioon
             RaycastHit2D groundhit = Physics2D.Raycast(transform.position, Vector3.down, hillAdjustY, 1 << LayerMask.NameToLayer("Ground"));
             if (groundhit) {
                 bottomDis = 0.6f - groundhit.distance;
@@ -573,13 +553,13 @@ public class IKLegsControl : MonoBehaviour {
     public void CheckUpDownHill()
     {
         if (!Character.onRightGround && Character.onLeftGround) {
-            HILL = "LEFTDOWNHILL";
+            HILL = HILL_LEVEL.LeftDownHill;
         }
         else if (Character.onRightGround && !Character.onLeftGround) {
-            HILL = "RIGHTDOWNHILL";
+            HILL = HILL_LEVEL.RightDownhill;
         }
         else {
-            HILL = "EVEN";
+            HILL = HILL_LEVEL.Even;
         }
 
     }
@@ -736,8 +716,13 @@ public class IKLegsControl : MonoBehaviour {
     {
         return Character.move.y;
     }
-    public string GetState()
+    public STATES GetState()
     {
         return STATE;
+    }
+
+    public bool LegsAreInAir()
+    {
+        return STATE == STATES.Air;
     }
 }

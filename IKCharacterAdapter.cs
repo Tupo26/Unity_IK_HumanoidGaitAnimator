@@ -2,7 +2,15 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class IKCharacterAdapter : MonoBehaviour {
+public interface IcontrolC
+{
+    void AddForce(float force);
+    void AddToRootOnce(float v);
+    void Flip();
+    void LiftSolvers();
+}
+
+public class IKCharacterAdapter : MonoBehaviour, IcontrolC {
 
     private IKLegsControl control_IK;
     private CharacterControl control_C;

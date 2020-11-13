@@ -1,13 +1,32 @@
-﻿using System.Collections;
+﻿using Assets.Scripts;
+using System.Collections;
 using System.Collections.Generic;
 using System.Timers;
 using UnityEngine;
 
-public class CharacterControl : MonoBehaviour {
-    public float speedAcceleration = 5.0f;
-    public float maxSpeed = 2f;
+public interface CharacterInputsOutPuts
+{
+    void MovementInput(Vector2 mInput);
+    void InputJump();
+    Vector2 GetPosition();
+    bool GetLookDir();
+    void Flip();
+    void ForceJumpDir(Vector2 jumpDir);
+}
+
+public  interface CharacterState
+{
+    bool IsTouchingLeftWall();
+    bool IsTouchingRightWall();
+    bool IsOnLedge();
+}
+
+public class CharacterControl : MonoBehaviour, CharacterInputsOutPuts, CharacterState
+{
+    public float speedAcceleration = 0.1f;
+    public float maxSpeed = 0.1f;
     public float gravity = 0.5f;
-    public float jumpPower = 10.0f;
+    public float jumpPower = 0.1f;
     public float jumpCounter = 0;
     public bool crouch = false;
 
@@ -43,10 +62,7 @@ public class CharacterControl : MonoBehaviour {
 
     //Gun
     [HideInInspector] public bool lookLeft = false;
-    [HideInInspector] public bool fireButtonDown = false;
-    [HideInInspector] public bool fireRate = true;
-    [HideInInspector] public Timer FireRateCoolDown;
-    public bool enableShoot = true;
+    
 
     //Move
     [HideInInspector] public Vector3 moveInput = new Vector3();
@@ -55,18 +71,16 @@ public class CharacterControl : MonoBehaviour {
     public float jumpCounterTimer = 1f;
     private bool jumped = true;
 
-    public Transform gun;
-    public AudioClip shootsound;
-    public GameObject Missile;
+    public float characterWidth = 0.5f;
 
     public bool STEEPCLIFF = false;
     public Vector3 STEEPVECTOR;
 
-    private float yVelocity = 0f;
+    public float yVelocity = 0f;
 
     private CharacterController cc;
     private Transform gchck;
-    private IKCharacterAdapter IKCharacterOutput;
+    private IcontrolC IKCharacterOutput;
 
     private AudioSource p_as;
 
@@ -82,11 +96,9 @@ public class CharacterControl : MonoBehaviour {
         cc = GetComponent<CharacterController>();
         p_as = GetComponent<AudioSource>();
         IKCharacterOutput = GetComponent<IKCharacterAdapter>();
+        if (IKCharacterOutput == null)
+            IKCharacterOutput = new NullCharacterAdapater();
 
-        fireButtonDown = false;
-        fireRate = true;
-        FireRateCoolDown = new Timer(200);
-        FireRateCoolDown.Elapsed += OnFireRateCoolDown;
 
         jumpTimer = new Timer(100);
         jumpTimer.Elapsed += OnJumpTimer;
@@ -94,11 +106,6 @@ public class CharacterControl : MonoBehaviour {
 
         ScaleX = transform.localScale.x;
         ScaleY = transform.localScale.y;
-    }
-
-    private void OnFireRateCoolDown(object source, ElapsedEventArgs e)
-    {
-        fireRate = true;
     }
 
     private void OnJumpTimer(object source, ElapsedEventArgs e)
@@ -121,38 +128,28 @@ public class CharacterControl : MonoBehaviour {
         if (ChrouchZ > 0)
             ChrouchZ = 0;
         IKCharacterOutput.AddToRootOnce(ChrouchZ);
-        moveInput = new Vector3(Input.GetAxis("Horizontal"), 0, 0);
+        //moveInput = new Vector3(Input.GetAxis("Horizontal"), 0, 0);
         onGround = Physics2D.Raycast(transform.position, Vector3.down, 0.65f, finalMask);
         onLeftGround = Physics2D.Raycast(transform.position - new Vector3(-0.4f, 0, 0), Vector3.down, 0.65f, finalMask);
         onRightGround = Physics2D.Raycast(transform.position - new Vector3(0.4f, 0, 0), Vector3.down, 0.65f, finalMask);
 
         RaycastHit2D groundhit = Physics2D.Raycast(transform.position, Vector3.down, 0.65f, finalMask);
-        RaycastHit2D groundhitleft = Physics2D.Raycast(transform.position - new Vector3(0.4f, 0, 0), Vector3.down, 0.65f, finalMask);
-        RaycastHit2D groundhitright = Physics2D.Raycast(transform.position - new Vector3(-0.4f, 0, 0), Vector3.down, 0.65f, finalMask);
+        RaycastHit2D groundhitleft;
+        RaycastHit2D groundhitright;
 
-        hitCeilingLeft = Physics2D.Raycast(transform.position - new Vector3(-0.4f, 0, 0), Vector3.up, 0.70f, finalMask);
-        hitCeilingRight = Physics2D.Raycast(transform.position - new Vector3(0.4f, 0, 0), Vector3.up, 0.70f, finalMask);
+        hitCeilingLeft = Physics2D.Raycast(transform.position - new Vector3(-0.2f, 0, 0), Vector3.up, 0.70f, finalMask);
+        hitCeilingRight = Physics2D.Raycast(transform.position - new Vector3(0.2f, 0, 0), Vector3.up, 0.70f, finalMask);
 
-        wallLeft = Physics2D.Raycast(transform.position, Vector3.left, 0.42f, finalMask);
-        wallRight = Physics2D.Raycast(transform.position, Vector3.right, 0.42f, finalMask);
-        wallUpLeft = Physics2D.Raycast(transform.position + new Vector3(0, 0.4f, 0), Vector3.left, 0.42f, finalMask);
-        wallUpRight = Physics2D.Raycast(transform.position + new Vector3(0, 0.4f, 0), Vector3.right, 0.42f, finalMask);
+        wallLeft = Physics2D.Raycast(transform.position, Vector3.left, characterWidth, finalMask);
+        wallRight = Physics2D.Raycast(transform.position, Vector3.right, characterWidth, finalMask);
+        wallUpLeft = Physics2D.Raycast(transform.position + new Vector3(0, 0.4f, 0), Vector3.left, characterWidth, finalMask);
+        wallUpRight = Physics2D.Raycast(transform.position + new Vector3(0, 0.4f, 0), Vector3.right, characterWidth, finalMask);
 
-        RaycastHit2D wallLeftfix = Physics2D.Raycast(transform.position, Vector3.left, 0.40f, finalMask);
-        RaycastHit2D wallRightfix = Physics2D.Raycast(transform.position, Vector3.right, 0.40f, finalMask);
+        RaycastHit2D wallLeftfix;
+        RaycastHit2D wallRightfix;
 
 
-
-        if (!onGround && !onLeftGround && !onRightGround) {
-            yVelocity -= gravity * Time.deltaTime;
-        }
-        else {
-            if (landed != IsLanded())
-                OnLand();
-            yVelocity = 0;
-            jumpCounter = 0;
-            
-        }
+        
         /*
         move += moveInput * Time.deltaTime * speedAcceleration;
         if (STEEPCLIFF)
@@ -170,17 +167,10 @@ public class CharacterControl : MonoBehaviour {
         }
         */
 
-        if (Input.GetButtonDown("Jump") && (onGround || onLeftGround || onRightGround)) {
-            jumpCounterTimer = 0;   
-            jumped = false;
-            //OnJump();
-        }else if (Input.GetButtonDown("Jump") && jumpCounter == 0) {
-            yVelocity = (jumpPower) * Time.deltaTime;
-            jumpCounter++;
-        }
+       
 
         if(jumpCounterTimer > 0.1f && !jumped) {
-            yVelocity = jumpPower * Time.deltaTime;
+            yVelocity = jumpPower;
             onGround = false;
             onLeftGround = false;
             onRightGround = false;
@@ -200,7 +190,7 @@ public class CharacterControl : MonoBehaviour {
         if (yVelocity < -1)
             yVelocity = -1;
    
-        if ((move.x > maxSpeed * moveInput.x || move.x < maxSpeed * moveInput.x) && !STEEPCLIFF) {
+        if (((move.x > maxSpeed * moveInput.x && !IsTouchingLeftWall()) || (move.x < maxSpeed * moveInput.x && !IsTouchingRightWall())) && !STEEPCLIFF) {
             move = new Vector3(maxSpeed * moveInput.x, move.y);
         }else if (STEEPCLIFF) {
             if(onLeftGround)
@@ -210,24 +200,6 @@ public class CharacterControl : MonoBehaviour {
             move = STEEPVECTOR * Time.deltaTime * 10;
         }
 
-        //GROUNDCHECK
-        
-        /*if (groundhitleft && onGround) {
-            if (groundhitleft.distance < 0.64f) {
-                Vector3 currentPosition = transform.position;
-                float yfix = 0.64f - groundhitleft.distance;
-                currentPosition.y += yfix;
-                transform.position = currentPosition;
-            }
-        }
-        if (groundhitright && onGround) {
-            if (groundhitright.distance < 0.64f) {
-                Vector3 currentPosition = transform.position;
-                float yfix = 0.64f - groundhitright.distance;
-                currentPosition.y += yfix;
-                transform.position = currentPosition;
-            }
-        }*/
 
         //WALLCHECK
         if (wallLeft && move.x < 0) {
@@ -248,33 +220,43 @@ public class CharacterControl : MonoBehaviour {
         RaycastHit2D leftCheck = Physics2D.Raycast(grabPoint.transform.position, Vector2.left * ScaleX, 1.0f, 1 << LayerMask.NameToLayer("Ground"));
         if (downCheck && !leftCheck && yVelocity < 0) {
              ledgeGrabbed = true;
-             yVelocity = 0;
+             //yVelocity = 0;
 
         }
         else {
             ledgeGrabbed = false;
         }
-        
-
-
 
         move.y = yVelocity;
 
-        
+
         //Move
         cc.Move(move);
 
 
-        //GROUNDFIX
-        /*groundhit = Physics2D.Raycast(transform.position, Vector3.down, 0.80f, 1 << LayerMask.NameToLayer("Ground"));
-        if (groundhit && onGround) {
-            if (groundhit.distance < 0.80f) {
+        //WALLFIX
+        //.45 hahmon leveys
+        float cW = characterWidth - 0.01f;
+        wallLeftfix = Physics2D.Raycast(transform.position, Vector3.left, cW, 1 << LayerMask.NameToLayer("Ground"));
+        wallRightfix = Physics2D.Raycast(transform.position, Vector3.right, cW, 1 << LayerMask.NameToLayer("Ground"));
+        if (wallLeft && wallLeftfix) {
+            if (wallLeftfix.distance < cW + 0.01) {
                 Vector3 currentPosition = transform.position;
-                float yfix = groundhit.distance - 0.64f;
-                currentPosition.y -= yfix;
+                float xfix = wallLeftfix.distance - (cW + 0.01f);
+                currentPosition.x -= xfix;
                 transform.position = currentPosition;
+                move.x = 0;
             }
-        }*/
+        }
+        if (wallRight && wallRightfix) {
+            if (wallRightfix.distance < cW + 0.01) {
+                Vector3 currentPosition = transform.position;
+                float xfix = wallRightfix.distance - (cW + 0.01f);
+                currentPosition.x += xfix;
+                transform.position = currentPosition;
+                move.x = 0;
+            }
+        }
 
         groundhitleft = Physics2D.Raycast(transform.position + new Vector3(0.4f, 0, 0), Vector3.down, 0.80f, finalMask);
         groundhitright = Physics2D.Raycast(transform.position - new Vector3(0.4f, 0, 0), Vector3.down, 0.80f, finalMask);
@@ -283,8 +265,9 @@ public class CharacterControl : MonoBehaviour {
         Debug.DrawRay(transform.position + new Vector3(0.4f, 0, 0), new Vector3(0, -groundhitleft.distance, 0), Color.red);
         Debug.DrawRay(transform.position - new Vector3(0.4f, 0, 0), new Vector3(0, -groundhitright.distance, 0), Color.cyan);
 
-
-        if (groundhit && onGround && !onLeftGround && !onRightGround) {
+        //.64 on puolet hahmonpituudesta
+        
+        if (groundhit && onGround && !onRightGround && !onLeftGround && yVelocity <= 0) {
             if (groundhit.distance < 0.64f) {
                 Vector3 currentPosition = transform.position;
                 float yfix = groundhit.distance - 0.64f;
@@ -293,6 +276,8 @@ public class CharacterControl : MonoBehaviour {
             }
         }
         else {
+
+            groundhitleft = Physics2D.Raycast(transform.position + new Vector3(0.4f, 0, 0), Vector3.down, 0.80f, finalMask);
             if (groundhitleft && onLeftGround) {
                 if (groundhitleft.distance < 0.80f) {
                     Vector3 currentPosition = transform.position;
@@ -301,6 +286,8 @@ public class CharacterControl : MonoBehaviour {
                     transform.position = currentPosition;
                 }
             }
+
+            groundhitright = Physics2D.Raycast(transform.position - new Vector3(0.4f, 0, 0), Vector3.down, 0.80f, finalMask);
             if (groundhitright && onRightGround) {
                 if (groundhitright.distance < 0.80f) {
                     Vector3 currentPosition = transform.position;
@@ -311,9 +298,23 @@ public class CharacterControl : MonoBehaviour {
             }
         }
 
-        
+
+        //FIXIT
+        onGround = Physics2D.Raycast(transform.position, Vector3.down, 0.65f, finalMask);
+        onLeftGround = Physics2D.Raycast(transform.position - new Vector3(-0.4f, 0, 0), Vector3.down, 0.65f, finalMask);
+        onRightGround = Physics2D.Raycast(transform.position - new Vector3(0.4f, 0, 0), Vector3.down, 0.65f, finalMask);
+        if (!onGround && !onLeftGround && !onRightGround) {
+            yVelocity -= gravity * Time.deltaTime;
+        }
+        else {
+            if (landed != IsLanded())
+                OnLand();
+            yVelocity = 0;
+            jumpCounter = 0;
+        }
 
 
+        /*
         STEEPCLIFF = false;
         if (Vector2.Angle(groundhitleft.normal, new Vector2(0, 1)) > 45){
             STEEPCLIFF = true;
@@ -323,28 +324,8 @@ public class CharacterControl : MonoBehaviour {
             STEEPCLIFF = true;
             STEEPVECTOR = groundhitright.normal;
         }
+        */
 
-        //WALLFIX
-        wallLeftfix = Physics2D.Raycast(transform.position, Vector3.left, 0.45f, 1 << LayerMask.NameToLayer("Ground"));
-        wallRightfix = Physics2D.Raycast(transform.position, Vector3.right, 0.45f, 1 << LayerMask.NameToLayer("Ground"));
-        if (wallLeft && wallLeftfix) {
-            if (wallLeftfix.distance < 0.41f) {
-                Vector3 currentPosition = transform.position;
-                float xfix = wallLeftfix.distance - 0.41f;
-                currentPosition.x -= xfix;
-                transform.position = currentPosition;
-                move.x = 0;
-            }
-        }
-        if (wallRight && wallRightfix) {
-            if (wallRightfix.distance < 0.41f) {
-                Vector3 currentPosition = transform.position;
-                float xfix = wallRightfix.distance - 0.41f;
-                currentPosition.x += xfix;
-                transform.position = currentPosition;
-                move.x = 0;
-            }
-        }
         /*
         Debug.DrawRay(transform.position, new Vector3(0, -0.65f, 0), Color.red);
 
@@ -358,16 +339,17 @@ public class CharacterControl : MonoBehaviour {
 
         Debug.DrawRay(transform.position, new Vector3(0.4f, -0.4f, 0), Color.red);
         Debug.DrawRay(transform.position, new Vector3(-0.4f, -0.4f, 0), Color.red);
-        */  
+        */
 
         //AIM
-        Vector2 dir = Camera.main.ScreenToWorldPoint(Input.mousePosition) - gun.position;
-        float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
-        Quaternion rotation = Quaternion.AngleAxis(angle, Vector3.forward);
+        //Vector2 dir = Camera.main.ScreenToWorldPoint(Input.mousePosition) - gun.position;
+        //float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+        //Quaternion rotation = Quaternion.AngleAxis(angle, Vector3.forward);
         //gun.rotation = Quaternion.Slerp(gun.rotation, rotation, 5f * Time.deltaTime);
         //gun.rotation = Quaternion.Lerp(gun.rotation, rotation, 1);
 
         //FLIP
+        /*
         Vector2 aimDir = Camera.main.ScreenToWorldPoint(Input.mousePosition) - transform.position;
         
         if (aimDir.x > 0f && lookLeft) {
@@ -386,39 +368,7 @@ public class CharacterControl : MonoBehaviour {
             lookLeft = true;
             OnFlip();
         }
-
-        //FIRE
-        if (Input.GetMouseButtonDown(0)) {
-            fireButtonDown = true;
-        }
-        if (Input.GetMouseButtonUp(0)) {
-            fireButtonDown = false;
-        }
-        if (fireRate && fireButtonDown && enableShoot) {
-            fireRate = false;
-            Vector2 GunAimDir = Camera.main.ScreenToWorldPoint(Input.mousePosition) - gun.transform.position;
-            angle = Mathf.Atan2(GunAimDir.y, GunAimDir.x) * Mathf.Rad2Deg;
-
-            GameObject bullet = Instantiate(Missile, gun.transform.position, rotation);
-
-
-            float h = Mathf.Sqrt(GunAimDir.x * GunAimDir.x + GunAimDir.y * GunAimDir.y);
-            float nX = GunAimDir.x / h;
-            float nY = GunAimDir.y / h;
-            float bulletVelocity = 25f;
-
-            
-            bullet.SendMessage("SetVeloctiyVector", new Vector2(nX * bulletVelocity, nY * bulletVelocity));
-
-            //bullet.GetComponent<Rigidbody2D>().velocity = new Vector2(nX * bulletVelocity, nY * bulletVelocity);
-            //rotation = Quaternion.AngleAxis(angle, Vector3.forward);
-            //bullet.transform.rotation = Quaternion.Lerp(gun.rotation, rotation, 1f);
-
-            p_as.PlayOneShot(shootsound);
-
-            
-            FireRateCoolDown.Start();
-        }
+        */
     }
 
     void FixPosition()
@@ -426,10 +376,11 @@ public class CharacterControl : MonoBehaviour {
 
     }
 
-    public void FlipX(float s)
+    public void Flip()
     {
-
-        transform.localScale = new Vector3(ScaleX * s, ScaleY, 0);
+        transform.localScale = new Vector3(transform.localScale.x*-1, ScaleY, 0);
+        lookLeft = !lookLeft;
+        OnFlip();
     }
 
     public float GetLocalScaleX()
@@ -459,5 +410,52 @@ public class CharacterControl : MonoBehaviour {
     public void OnFlip()
     {
         IKCharacterOutput.Flip();
+    }
+
+    public bool IsTouchingLeftWall()
+    {
+        return wallLeft;
+    }
+    public bool IsTouchingRightWall()
+    {
+        return wallRight;
+    }
+
+    public bool IsOnLedge()
+    {
+        RaycastHit2D checkLeft = Physics2D.Raycast(transform.position - new Vector3(-0.4f, 0, 0), Vector3.down, 1.7f, 1 << LayerMask.NameToLayer("Ground"));
+        RaycastHit2D checkRight = Physics2D.Raycast(transform.position - new Vector3(0.4f, 0, 0), Vector3.down, 1.7f, 1 << LayerMask.NameToLayer("Ground"));
+        return !((checkLeft && !lookLeft) || (checkRight && lookLeft));
+    }
+
+    //INPUTS
+    public void ForceJumpDir(Vector2 jumpDir)
+    {
+
+    }
+    public void MovementInput(Vector2 mInput)
+    {
+        moveInput = mInput;
+    }
+
+    public Vector2 GetPosition()
+    {
+        return transform.position;
+    }
+    public bool GetLookDir()
+    {
+        return lookLeft;
+    }
+
+    public void InputJump()
+    {
+        if ((onGround || onLeftGround || onRightGround)) {
+            jumpCounterTimer = 0;
+            jumped = false;
+        }
+        else if (jumpCounter == 0) {
+            yVelocity = (jumpPower);
+            jumpCounter++;
+        }
     }
 }
