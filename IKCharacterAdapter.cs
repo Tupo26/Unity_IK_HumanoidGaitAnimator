@@ -8,60 +8,70 @@ public interface IcontrolC
     void AddToRootOnce(float v);
     void Flip();
     void LiftSolvers();
+    void ChrouchOn();
+    void ChrouchOff();
 }
 
 public class IKCharacterAdapter : MonoBehaviour, IcontrolC {
 
     private IKLegsControl control_IK;
-    private CharacterControl control_C;
+    private IKLegsControl[] legs;
+    private CharacterState control_C;
 
 	// Use this for initialization
 	void Start () {
         control_IK = GetComponent<IKLegsControl>();
         control_C = GetComponent<CharacterControl>();
+        legs = GetComponents<IKLegsControl>();
     }
-	
-	// Update is called once per frame
-	void Update () {
-		
-	}
 
     public void AddForce(float force)
     {
-        control_IK.AddRootForce(force);
+        //control_IK.AddRootForce(force);
+        foreach(IKLegsControl i in legs) {
+            i.AddRootForce(force);
+        }
     }
 
     public void Flip()
     {
-        control_IK.Flip();
+        //control_IK.Flip();
+        foreach (IKLegsControl i in legs) {
+            i.Flip();
+            i.RestlessFeet();
+        }
     }
 
     public void LiftSolvers()
     {
         Debug.Log("CharacterAdapter: Lift Solvers");
-        control_IK.LiftSolvers();
-        control_IK.resertAnchorPositions();
+        foreach (IKLegsControl i in legs) {
+            i.LiftSolvers();
+            i.resertAnchorPositions();
+        }
+        //control_IK.LiftSolvers();
+        //control_IK.resertAnchorPositions();
     }
 
     public void AddToRootOnce(float v)
     {
-        control_IK.rootAdjustOnce += v;
-    }
-    public void AddToChestOnce(float v)
-    {
-
+        foreach (IKLegsControl i in legs) {
+            i.rootAdjustOnce += v;
+        }
+        //control_IK.rootAdjustOnce += v;
     }
 
     public float GetCharacterSpeed()
     {
-        return control_C.move.x;
+        Vector2 m = control_C.Movement();
+        return m.x;
     }
 
     public bool getRunning()
     {
-        if(control_C.maxSpeed == control_C.move.x) {
+        Vector2 m = control_C.Movement();
+        if (control_C.GetMaxSpeed() == m.x) {
 
-            Debug.Log("Juostaan");
             return true;
         }
         else {
@@ -69,12 +79,19 @@ public class IKCharacterAdapter : MonoBehaviour, IcontrolC {
         }
     }
 
-    public void StartMoving()
+    public void ChrouchOn()
     {
-
+        foreach (IKLegsControl i in legs) {
+            i.ChrouchOn();
+        }
+        //control_IK.ChrouchOn();
     }
-    public void StopMoving()
-    {
 
+    public void ChrouchOff()
+    {
+        foreach (IKLegsControl i in legs) {
+            i.ChrouchOff();
+        }
+        //control_IK.ChrouchOff();
     }
 }

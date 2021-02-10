@@ -3,14 +3,18 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+
+
 [RequireComponent(typeof(IKCharacterAdapter))]
+[RequireComponent(typeof(Footsteps))]
+[RequireComponent(typeof(IKFeetAdjust))]
 
 public class IKLegsControl : MonoBehaviour {
 
     //Komponentit
     public GameObject root;
     private CharacterControl Character;
-    private Footsteps fsteps;
+    private IFootsteps fsteps;
     private IFootAdjustment IK_feet;
     private IFootAdjustment Dfeet = new DeAdjustFeet();
 
@@ -39,8 +43,14 @@ public class IKLegsControl : MonoBehaviour {
         BOTH_SIMULTANEOUS,
         BOTH_ALTERNATE
     }
+    public enum STANCES
+    {
+        Standing,
+        Crouching
+    }
     public STATES STATE = STATES.Idle; //IDLE, MOVING, AIR
     public HILL_LEVEL HILL = HILL_LEVEL.Even; // EVEN, UPHILL, DOWNHILL
+    public STANCES STANCE = STANCES.Standing; // STANDING, CROUCHING
     private bool AdjustToA = false;
 
     //ROOT
@@ -55,14 +65,14 @@ public class IKLegsControl : MonoBehaviour {
 
     //O-Pos
     private Vector3 chestO;
-    private Vector2 ShoulderPos;
-    private Vector2 HipPos;
+    private Vector3 landingPoint;
 
     //Speed
     public float speed = 0;
     public float rest_speed = 0;
     public bool leftSupport = true;
     private bool running = false;
+    private bool resting = true;
 
     private Vector2 anchorLeft;
     private Vector2 anchorRight;
@@ -150,12 +160,15 @@ public class IKLegsControl : MonoBehaviour {
         CX = (1 / Character.GetLocalScaleX()) * Character.ScaleX;
 
         // ON GROUND Walking
-        if (Character.moveInput.x == 0)
+        if (Character.move.x == 0)
             STATE = STATES.Idle;
-        else
+        else {
+            resting = false;
             STATE = STATES.Moving;
+        }
+            
 
-        if (Character.IsLanded()) {
+        if (Character.IsOnGround()) {
             //ASKELTIHEYS
             if (Character.move.x < 0 && CX > 0 || Character.move.x > 0 && CX < 0) {
                 if (getAngle() == 0)
@@ -232,7 +245,10 @@ public class IKLegsControl : MonoBehaviour {
                 }
 
                 //Nosto
-                MoveB = new Vector2(MoveC.x - 0.2f*CX, MoveC.y + heelLift + Mathf.Abs(Character.move.x)*5);
+                if(STANCE == STANCES.Crouching) {
+                    MoveB = new Vector2(MoveC.x - 0.2f * CX, MoveC.y + Mathf.Abs(Character.move.x) * 5);
+                }else
+                    MoveB = new Vector2(MoveC.x - 0.2f*CX, MoveC.y + heelLift + Mathf.Abs(Character.move.x)*5);
 
                 //FORWARDS - ASKELVALMIS
                 if (speed >= 1) {
@@ -255,9 +271,10 @@ public class IKLegsControl : MonoBehaviour {
                     MoveA.x *= CX;
                     MoveA.x += transform.position.x;
                     leftSupport = !leftSupport;
+                    fsteps.PlayFootStep();
                 }
                 //BACKWARDS
-                else if (speed <= 0) {
+                else if (speed < 0) {
                     speed = 1;
                     if (leftSupport) {
                         anchorLeft = new Vector2(SolverLeft.transform.position.x, SolverLeft.transform.position.y);
@@ -268,12 +285,14 @@ public class IKLegsControl : MonoBehaviour {
                         MoveC = anchorLeft;
                     }
                     leftSupport = !leftSupport;
+
+                    fsteps.PlayFootStep();
                 }
             }
 
             else if (STATE == STATES.Idle) {
                 //PYSÄHTYMINEN
-                if (speed < 1) {
+                if (speed < 1 && !resting) {
                     FindFootStep(Vector3.zero); //Viedään jo liikellä oleva askel kehon eteen
                     Vector2 newvec = Walking(restSpeed);
                     if (leftSupport) {
@@ -311,10 +330,13 @@ public class IKLegsControl : MonoBehaviour {
                             anchorRight = new Vector2(SolverRight.transform.position.x, SolverRight.transform.position.y);
                             MoveA = anchorRight;
                         }
+                        speed = 0;
+                        resting = true;
                     }
                 }
 
                 //Jalkapohjien asettaminen
+                LiftSolversFeet();
                 IK_feet.AdjustBoth();
                 
             }
@@ -326,6 +348,7 @@ public class IKLegsControl : MonoBehaviour {
             STATE = STATES.Air;
             float moveY = Character.move.y;
 
+            //Vapaa pudotus
             if (!Character.ledgeGrabbed) {
                 if (moveY > 0)
                     moveY = 0;
@@ -385,24 +408,33 @@ public class IKLegsControl : MonoBehaviour {
 
         Vector2 newpose;
         //Tasapainottele reunalla, jos askeletta ei löydy edestä
+        AdjustToA = false;
        if (AdjustToA) {
             newpose = new Vector2(rootX + rootForceX, rootY + rootForceY + gaitFix + bottomDis + rootAdjustOnce);
             if (CX > 0 && root.transform.position.x > MoveC.x)
                 root.transform.position = new Vector2(MoveC.x, root.transform.position.y);
             else if (CX < 0 && root.transform.position.x < MoveC.x)
                 root.transform.position = new Vector2(MoveC.x, root.transform.position.y);
-            SolverChest.transform.localPosition = new Vector2(chestO.x, chestO.y);
-            if (newpose.y < -2.25f)
-                newpose = new Vector3(newpose.x, -2.25f);
+            float c = SolverChest.transform.position.x - MoveC.x;
+            SolverChest.transform.localPosition = new Vector2(chestO.x - c*CX, chestO.y);
+            //SolverChest.transform.localPosition = new Vector2(chestO.x, chestO.y);
+            //if (newpose.y < -2.25f)
+               // newpose = new Vector3(newpose.x, -2.25f);
         }
        else {
+            //nojaa eteenpäin kun on liikeessä
             newpose = new Vector2(rootX + rootForceX, rootY + rootForceY + gaitFix + bottomDis + rootAdjustOnce);
-            SolverChest.transform.localPosition = new Vector2(chestO.x + (Character.move.x*CX*2f), chestO.y);
-            if (newpose.y < -2.25f)
-                newpose = new Vector3(newpose.x, -2.25f);
+            SolverChest.transform.localPosition = new Vector2(chestO.x + (Character.move.x*CX*1.5f), chestO.y);
+          //  if (newpose.y < -2.25f)
+               // newpose = new Vector3(newpose.x, -2.25f);
        }
 
-        root.transform.localPosition = Vector2.LerpUnclamped(root.transform.localPosition, newpose, 0.5f);
+        if (STANCE == STANCES.Crouching) {
+            newpose = new Vector3(newpose.x, -2.25f);
+            SolverChest.transform.localPosition = new Vector2(chestO.x + 1f, chestO.y);
+        }
+
+        root.transform.localPosition = Vector2.LerpUnclamped(root.transform.localPosition, newpose, 0.9f);
 
         rootAdjustOnce = 0;
         HillAdjust();
@@ -502,6 +534,8 @@ public class IKLegsControl : MonoBehaviour {
     {
         anchorRight = new Vector2(SolverRight.transform.position.x, SolverRight.transform.position.y);
         anchorLeft = new Vector2(SolverLeft.transform.position.x, SolverLeft.transform.position.y);
+        MoveC = new Vector2(SolverLeft.transform.position.x, SolverLeft.transform.position.y);
+        MoveA = MoveC;
 
     }
     public void resetSolverPositions()
@@ -532,17 +566,17 @@ public class IKLegsControl : MonoBehaviour {
             //0.6f = Hahmon pituus jalasta lantioon
             RaycastHit2D groundhit = Physics2D.Raycast(transform.position, Vector3.down, hillAdjustY, 1 << LayerMask.NameToLayer("Ground"));
             if (groundhit) {
-                bottomDis = 0.6f - groundhit.distance;
+                bottomDis = CharacterHeight - groundhit.distance;
             }
             RaycastHit2D groundhitleft = Physics2D.Raycast(transform.position - new Vector3(-0.4f, 0, 0), Vector3.down, hillAdjustY, 1 << LayerMask.NameToLayer("Ground"));
             if (groundhitleft) {
-                if (0.6f - groundhitleft.distance < bottomDis)
-                    bottomDis = 0.6f - groundhitleft.distance;
+                if (CharacterHeight - groundhitleft.distance < bottomDis)
+                    bottomDis = CharacterHeight - groundhitleft.distance;
             }
             RaycastHit2D groundhitright = Physics2D.Raycast(transform.position - new Vector3(0.4f, 0, 0), Vector3.down, hillAdjustY, 1 << LayerMask.NameToLayer("Ground"));
             if (groundhitright) {
-                if (0.6f - groundhitright.distance < bottomDis)
-                    bottomDis = 0.6f - groundhitright.distance;
+                if (CharacterHeight - groundhitright.distance < bottomDis)
+                    bottomDis = CharacterHeight - groundhitright.distance;
             }
             Debug.DrawLine(transform.position - new Vector3(-0.4f, 0, 0), groundhitleft.point, Color.green);
             Debug.DrawLine(transform.position - new Vector3(0.4f, 0, 0), groundhitright.point, Color.green);
@@ -647,12 +681,12 @@ public class IKLegsControl : MonoBehaviour {
     {
         RaycastHit2D groundhit;
        
-        groundhit = Physics2D.Raycast(SolverRight.transform.position + new Vector3(0, 1), Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
+        groundhit = Physics2D.Raycast(SolverRight.transform.position + new Vector3(0, 0.4f), Vector3.down, 1f, 1 << LayerMask.NameToLayer("Ground"));
         if (groundhit && !leftSupport) {
             SolverRight.transform.position = groundhit.point;
             anchorRight = groundhit.point;
         }
-        groundhit = Physics2D.Raycast(SolverLeft.transform.position + new Vector3(0, 1), Vector3.down, 2f, 1 << LayerMask.NameToLayer("Ground"));
+        groundhit = Physics2D.Raycast(SolverLeft.transform.position + new Vector3(0, 0.4f), Vector3.down, 1f, 1 << LayerMask.NameToLayer("Ground"));
         if (groundhit && leftSupport) {
             SolverLeft.transform.position = groundhit.point;
             anchorLeft = groundhit.point;
@@ -693,6 +727,24 @@ public class IKLegsControl : MonoBehaviour {
     public void OutputStep()
     {
 
+    }
+
+    public void RestlessFeet()
+    {
+        rest_speed = 0;
+        resting = false;
+        //resertAnchorPositions();
+        LiftSolvers();
+    }
+
+    public void ChrouchOn()
+    {
+        STANCE = STANCES.Crouching;
+    }
+
+    public void ChrouchOff()
+    {
+        STANCE = STANCES.Standing;
     }
 
     public float GetBottomDis()
