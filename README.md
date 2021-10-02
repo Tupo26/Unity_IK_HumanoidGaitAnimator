@@ -8,7 +8,7 @@ CharacterControl.cs contains code for moving 2D character in 2D environment. It 
 Contains interfaces for collecting character's state and inputs for changing character’s state.  
 
 IKLegsControl.cs contains code that animates character legs.
-The presumption is that character is rigged and has kinematic model done using Unity’s own rigging tools & 2D inverse kinematics solvers such as CDD or Limb.   
+The presumption is that character is rigged and has kinematic model done using Unity’s own rigging tools & 2D inverse kinematics solvers such as CCD or Limb.   
 
 IKCharacterAdapter.cs serves as a bridge between these components.  
 
