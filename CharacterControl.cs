@@ -17,6 +17,7 @@ public interface CharacterInputsOutPuts
     void InputDash();
     void InputLevitate();
     void InputAddForce(Vector2 f);
+    Vector2 GetGrabPoint();
 }
 
 public interface CharacterState
@@ -29,6 +30,7 @@ public interface CharacterState
     bool IsDashing();
     bool IsChrouching();
     bool IsLookingLeft();
+    bool IsGrabbingLedge();
     Vector2 Movement();
     float GetMaxSpeed();
     float GetLocalScaleX();
@@ -54,18 +56,22 @@ public class CharacterControl : MonoBehaviour, CharacterInputsOutPuts, Character
     public Vector3 crouchVector = new Vector3(0, 0);
 
     //Hit Detection - Level
-    public bool onGround = false;
-    public bool onLeftGround = false;
-    public bool LeftGround = false;
-    public bool onRightGround = false;
-    public bool RightGround = false;
+    [HideInInspector] public bool onGround = false;
+    [HideInInspector] public bool onLeftGround = false;
+    [HideInInspector] public bool LeftGround = false;
+    [HideInInspector] public bool onRightGround = false;
+    [HideInInspector] public bool RightGround = false;
 
     //Ledge grab
     public GameObject grabPoint;
-    public bool ledgeRight = false;
-    public bool ledgeLeft = false;
-    public bool ledgeGrabbed = false;
+    public bool bCanGrab = false;
+    private Vector2 vGrabpoint = Vector2.zero;
+    private float ClimbStart = 0;
+    private float ClimbEnd = 0.4f;
+    private Vector2 climbVector;
+    [HideInInspector] public bool ledgeGrabbed = false;
 
+    //Wall & Ceiling
     [HideInInspector] public bool wallLeft = false;
     [HideInInspector] public bool wallRight = false;
     [HideInInspector] public bool wallUpLeft = false;
@@ -81,41 +87,39 @@ public class CharacterControl : MonoBehaviour, CharacterInputsOutPuts, Character
     //Move
     [HideInInspector] public Vector3 moveInput = new Vector3();
     [HideInInspector] public Vector3 move = new Vector3();
-    [HideInInspector] public Timer jumpTimer;
     [HideInInspector] public float jumpCounterTimer = 1.5f;
     private bool jumped = true;
     private float dashStopTimer = 0f;
     private bool dash = false;
+    public float dashSpeed = 0.33f;
     public int dashCounterMax = 2;
     public int dashCounter = 2;
     private float dashChargeSpeed = 0;
     private float dashChargeSpeedMax = 1.0f;
 
-    public float characterWidth = 0.5f;
+    public float characterWidth = 0.4f;
     public float characterHeight = 0.65f;
-    public float slopeTolerance = 0.15f;
+    public float slopeTolerance = 0.4f;
     public float wallTolerance = 0.1f;
 
-    public bool STEEPCLIFF = false;
-    public Vector3 STEEPVECTOR;
+    [HideInInspector] public bool STEEPCLIFF = false;
+    [HideInInspector] public Vector3 STEEPVECTOR;
 
     public float yVelocity = 0f;
     public float xVelocity = 0f;
     public float maxYVelocity = -0.5f;
 
     private CharacterController cc;
-    private Transform gchck;
     private IcontrolC IKCharacterOutput;
-    private Vector2 ICinput = Vector2.zero;
 
     private AudioSource p_as;
     private IEntityAudio IAudio;
     //After
-    public bool landed = false;
+    [HideInInspector] public bool landed = false;
 
 
-    public float ScaleX;
-    public float ScaleY;
+    [HideInInspector] public float ScaleX;
+    [HideInInspector] public float ScaleY;
 
     // Use this for initialization
     void Start()
@@ -128,17 +132,8 @@ public class CharacterControl : MonoBehaviour, CharacterInputsOutPuts, Character
             IKCharacterOutput = new NullCharacterAdapater();
 
 
-        jumpTimer = new Timer(100);
-        jumpTimer.Elapsed += OnJumpTimer;
-
-
         ScaleX = transform.localScale.x;
         ScaleY = transform.localScale.y;
-    }
-
-    private void OnJumpTimer(object source, ElapsedEventArgs e)
-    {
-
     }
 
     // Update is called once per frame
@@ -226,10 +221,19 @@ public class CharacterControl : MonoBehaviour, CharacterInputsOutPuts, Character
         if (((moveInput.x < 0 && !IsTouchingLeftWall()) || (moveInput.x > 0 && !IsTouchingRightWall())) && !STEEPCLIFF && !ledgeGrabbed) {
             
             move = new Vector3(move.x + speedAcceleration * moveInput.x * Time.deltaTime, move.y);
-            if (move.x > maxSpeed * Mathf.Abs(moveInput.x))
-                move.x = maxSpeed * Mathf.Abs(moveInput.x);
-            if (move.x < -maxSpeed * Mathf.Abs(moveInput.x))
-                move.x = -maxSpeed * Mathf.Abs(moveInput.x);
+            if (crouch) {
+                if (move.x > maxSpeed * Mathf.Abs(moveInput.x)/2)
+                    move.x = maxSpeed * Mathf.Abs(moveInput.x)/2;
+                if (move.x < -maxSpeed * Mathf.Abs(moveInput.x)/2)
+                    move.x = -maxSpeed * Mathf.Abs(moveInput.x)/2;
+            }
+            else {
+                if (move.x > maxSpeed * Mathf.Abs(moveInput.x))
+                    move.x = maxSpeed * Mathf.Abs(moveInput.x);
+                if (move.x < -maxSpeed * Mathf.Abs(moveInput.x))
+                    move.x = -maxSpeed * Mathf.Abs(moveInput.x);
+            }
+            
         }
         else if(moveInput.x == 0 && IsOnGround()) {
             move.x = move.x * 0.8f;
@@ -250,9 +254,9 @@ public class CharacterControl : MonoBehaviour, CharacterInputsOutPuts, Character
         if (dash && dashStopTimer < 0.2f) {
             dashStopTimer += Time.deltaTime;
             if (move.x != 0)
-                move = new Vector3(maxSpeed * 3 * Mathf.Sign(move.x), 0);
+                move = new Vector3(dashSpeed * Mathf.Sign(move.x), 0);
             else
-                move = new Vector3(maxSpeed * 3 * Mathf.Sign(transform.localScale.x), 0);
+                move = new Vector3(dashSpeed * Mathf.Sign(transform.localScale.x), 0);
             if (IsTouchingLeftWall() && move.x < 0) {
                 move.x = 0;
             }
@@ -277,6 +281,36 @@ public class CharacterControl : MonoBehaviour, CharacterInputsOutPuts, Character
         if (ledgeGrabbed)
             yVelocity = 0;
 
+        //LEDGEGRAB
+        if (ledgeGrabbed) {
+            //ledgeGrabbed = false;
+            jumpCounter = jumpMax - 1;
+            if(ClimbStart > -1) {
+                Vector2 d = climbVector - vGrabpoint;
+                transform.position = d*ClimbStart + climbVector;
+                ClimbStart -= Time.deltaTime*5;
+                IKCharacterOutput.LiftSolvers();
+                IKCharacterOutput.ChrouchOn();
+            }
+            else {
+                ledgeGrabbed = false;
+                IKCharacterOutput.LiftSolvers();
+                IKCharacterOutput.ChrouchOff();
+                IAudio.PlaySound("Jump");
+            }
+
+        }
+        if ((IsTouchingLeftWall() || IsTouchingRightWall()) && yVelocity <= 0 && bCanGrab && !IsBumpingCeiling() && !ledgeGrabbed) {
+            RaycastHit2D p = Physics2D.Raycast(grabPoint.transform.position, Vector2.down, characterHeight, finalMask);
+            if (Physics2D.Raycast(grabPoint.transform.position, Vector2.down, characterHeight, finalMask) && p.distance > 0.0f) {
+                ledgeGrabbed = true;
+                yVelocity = 0;
+                vGrabpoint = p.point;
+                climbVector = transform.position;
+                ClimbStart = 0;
+            }
+        }
+
         move.y = yVelocity;
 
         //FIXIT
@@ -292,69 +326,16 @@ public class CharacterControl : MonoBehaviour, CharacterInputsOutPuts, Character
             //dashCounter = 0;
         }
 
-        //LEDGECHECK
-        RaycastHit2D downCheck = Physics2D.Raycast(grabPoint.transform.position, -Vector2.up, 0.1f, 1 << LayerMask.NameToLayer("Ground"));
-        RaycastHit2D upCheck = Physics2D.Raycast(grabPoint.transform.position, Vector2.up, 0.1f, 1 << LayerMask.NameToLayer("Ground"));
-        RaycastHit2D leftCheck = Physics2D.Raycast(grabPoint.transform.position, Vector2.left * ScaleX, 1.0f, 1 << LayerMask.NameToLayer("Ground"));
-
-        if ((downCheck || upCheck) && !leftCheck && yVelocity < 0) {
-            //ledgeGrabbed = true;
-            //yVelocity = 0;
-
-        }
-        else if(ledgeGrabbed){
-            //ledgeGrabbed = false;
-            jumpCounter = jumpMax - 1;
-        }
-
+        //Wall desiplacement prep
+        RaycastHit2D wallbeforeLeft = Physics2D.Raycast(transform.position + crouchVector - new Vector3(characterWidth, 0), Vector3.left, 4.0f,finalMask);
+        RaycastHit2D wallbeforeRight = Physics2D.Raycast(transform.position + crouchVector + new Vector3(characterWidth, 0), Vector3.right, 4.0f, finalMask);
 
         //Move
+        Vector2 moveX = new Vector2(move.x, 0);
+        Vector2 moveY = new Vector2(0, move.y);
         cc.Move(move);
 
-        //WALLCHECK
-        wallLeft = Physics2D.Raycast(transform.position, Vector3.left, characterWidth + 0.01f, finalMask);
-        wallRight = Physics2D.Raycast(transform.position, Vector3.right, characterWidth + 0.01f, finalMask);
-        wallUpLeft = Physics2D.Raycast(transform.position + new Vector3(0, 0.4f, 0) + crouchVector, Vector3.left, characterWidth + 0.01f, finalMask);
-        wallUpRight = Physics2D.Raycast(transform.position + new Vector3(0, 0.4f, 0) + crouchVector, Vector3.right, characterWidth + 0.01f, finalMask);
-
-        if ((wallLeft || wallUpLeft) && move.x < 0) {
-            move.x = 0;
-        }
-        else if ((wallRight || wallUpRight) && move.x > 0) {
-            move.x = 0;
-        }
-
-
-
-
-        //WALLFIX
-        //.45 hahmon leveys
-        float cW = characterWidth - 0.01f;
-        wallLeftfix = Physics2D.Raycast(transform.position, Vector3.left, cW, 1 << LayerMask.NameToLayer("Ground"));
-        if (wallLeft && wallLeftfix) {
-            if (wallLeftfix.distance < cW + 0.01) {
-                Vector3 currentPosition = transform.position;
-                float xfix = wallLeftfix.distance - (cW + 0.01f);
-                currentPosition.x -= xfix;
-                transform.position = currentPosition;
-                move.x = 0;
-            }
-        }
-
-        wallRightfix = Physics2D.Raycast(transform.position, Vector3.right, cW, 1 << LayerMask.NameToLayer("Ground"));
-        if (wallRight && wallRightfix) {
-            if (wallRightfix.distance < cW + 0.01) {
-                Vector3 currentPosition = transform.position;
-                float xfix = wallRightfix.distance - (cW + 0.01f);
-                currentPosition.x += xfix;
-                transform.position = currentPosition;
-                move.x = 0;
-            }
-        }
-        Debug.DrawLine(transform.position + new Vector3(0, 0, 0), transform.position + new Vector3(cW, 0, 0), Color.red);
-        Debug.DrawLine(transform.position + new Vector3(0, 0, 0), transform.position + new Vector3(-cW, 0, 0), Color.red);
-        Debug.DrawLine(transform.position + new Vector3(0, 0.4f, 0) + crouchVector, transform.position + new Vector3(cW, 0.4f, 0) + crouchVector, Color.red);
-        Debug.DrawLine(transform.position + new Vector3(0, 0.4f, 0) + crouchVector, transform.position + new Vector3(-cW, 0.4f, 0) + crouchVector, Color.red);
+        
 
         groundhitleft = Physics2D.Raycast(transform.position + new Vector3((characterWidth - wallTolerance), 0, 0), Vector3.down, characterHeight + slopeTolerance, finalMask);
         groundhitright = Physics2D.Raycast(transform.position - new Vector3((characterWidth - wallTolerance), 0, 0), Vector3.down, characterHeight + slopeTolerance, finalMask);
@@ -398,8 +379,77 @@ public class CharacterControl : MonoBehaviour, CharacterInputsOutPuts, Character
             }
         }
 
+        //Walldisplacement fix
+        if (move.x > 0 && wallbeforeRight) {
+            if (transform.position.x > wallbeforeRight.point.x) {
+                Debug.Log(wallbeforeRight.collider.gameObject.name);
+                Debug.Log("Corrected wall displacement: " + transform.position.x + ">" + wallbeforeRight.point.x);
+
+                Debug.DrawLine(wallbeforeRight.point, transform.position, Color.cyan, 10.0f);
+                transform.position = new Vector2(wallbeforeRight.point.x - characterWidth - 0.01f, transform.position.y);
+                //Debug.DrawLine(wallbeforeRight.point, transform.position, Color.cyan, 10.0f);
+            }
+        }
+        else if (move.x < 0 && wallbeforeLeft) {
+            if (transform.position.x < wallbeforeLeft.point.x) {
+
+                Debug.Log(wallbeforeLeft.collider.gameObject.name);
+                Debug.DrawLine(wallbeforeLeft.point, transform.position, Color.cyan, 10.0f);
+                Debug.Log("Corrected wall displacement: " + transform.position.x + "<" + wallbeforeLeft.point.x);
+                transform.position = new Vector2(wallbeforeLeft.point.x + characterWidth + 0.01f, transform.position.y);
+                //Debug.DrawLine(wallbeforeLeft.point, transform.position, Color.cyan, 10.0f);
+            }
+        }
+
+        //WALLCHECK
+        wallLeft = Physics2D.Raycast(transform.position, Vector3.left, characterWidth + 0.01f, finalMask);
+        wallRight = Physics2D.Raycast(transform.position, Vector3.right, characterWidth + 0.01f, finalMask);
+        wallUpLeft = Physics2D.Raycast(transform.position + new Vector3(0, 0.4f, 0) + crouchVector, Vector3.left, characterWidth + 0.01f, finalMask);
+        wallUpRight = Physics2D.Raycast(transform.position + new Vector3(0, 0.4f, 0) + crouchVector, Vector3.right, characterWidth + 0.01f, finalMask);
+
+        if ((wallLeft || wallUpLeft) && move.x < 0) {
+            move.x = 0;
+        }
+        else if ((wallRight || wallUpRight) && move.x > 0) {
+            move.x = 0;
+        }
+
+
+
+
+        //WALLFIX - Tod.Näk. turha koska 'Walldisplacement fix' on parempi.
+        //.45 hahmon leveys
+
+        float cW = characterWidth - 0.01f;
+        wallLeftfix = Physics2D.Raycast(transform.position, Vector3.left, cW, 1 << LayerMask.NameToLayer("Ground"));
+        if (wallLeft && wallLeftfix) {
+            if (wallLeftfix.distance < cW + 0.01) {
+                Vector3 currentPosition = transform.position;
+                float xfix = wallLeftfix.distance - (cW + 0.01f);
+                currentPosition.x -= xfix;
+                transform.position = currentPosition;
+                move.x = 0;
+            }
+        }
+
+        wallRightfix = Physics2D.Raycast(transform.position, Vector3.right, cW, 1 << LayerMask.NameToLayer("Ground"));
+        if (wallRight && wallRightfix) {
+            if (wallRightfix.distance < cW + 0.01) {
+                Vector3 currentPosition = transform.position;
+                float xfix = wallRightfix.distance - (cW + 0.01f);
+                currentPosition.x += xfix;
+                transform.position = currentPosition;
+                move.x = 0;
+            }
+        }
+        Debug.DrawLine(transform.position + new Vector3(0, 0, 0), transform.position + new Vector3(cW, 0, 0), Color.red);
+        Debug.DrawLine(transform.position + new Vector3(0, 0, 0), transform.position + new Vector3(-cW, 0, 0), Color.red);
+        Debug.DrawLine(transform.position + new Vector3(0, 0.4f, 0) + crouchVector, transform.position + new Vector3(cW, 0.4f, 0) + crouchVector, Color.red);
+        Debug.DrawLine(transform.position + new Vector3(0, 0.4f, 0) + crouchVector, transform.position + new Vector3(-cW, 0.4f, 0) + crouchVector, Color.red);
+        
+
         //DASHCOUNTER
-        if(dashChargeSpeed > 1.0f) {
+        if (dashChargeSpeed > 1.0f) {
             dashChargeSpeed = 0;
             dashCounter++;
 
@@ -548,6 +598,11 @@ public class CharacterControl : MonoBehaviour, CharacterInputsOutPuts, Character
         return lookLeft;
     }
 
+    public bool IsGrabbingLedge()
+    {
+        return ledgeGrabbed;
+    }
+
     public Vector2 GetPosition()
     {
         return transform.position;
@@ -651,6 +706,11 @@ public class CharacterControl : MonoBehaviour, CharacterInputsOutPuts, Character
     public float GetMaxSpeed()
     {
         return maxSpeed;
+    }
+
+    public Vector2 GetGrabPoint()
+    {
+        return vGrabpoint;
     }
 
     // Properties

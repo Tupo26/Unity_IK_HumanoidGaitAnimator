@@ -62,15 +62,16 @@ public class IKLegsControl : MonoBehaviour {
     [HideInInspector] public float rootAdjustOnce = 0;
     private float gaitFix = 0;
     private float rootForceDecay = 10f;
+    private float standingUpSpeed = 0.99f;
 
     //O-Pos
     private Vector3 chestO;
     private Vector3 landingPoint;
 
     //Speed
-    public float speed = 0;
-    public float rest_speed = 0;
-    public bool leftSupport = true;
+    private float speed = 0;
+    private float rest_speed = 0; //current state of rest
+    private bool leftSupport = true;
     private bool running = false;
     private bool resting = true;
 
@@ -88,7 +89,7 @@ public class IKLegsControl : MonoBehaviour {
 
     //Hahmo
     public float CharacterHeight = 0.64f;
-    public float CX ;
+    private float CX ;
 
     //STEP - Adjust
     [Range(-10.0f, 10.0f)] public float searchStepAdjust = 0;//Askeleen etsintä pituus
@@ -119,7 +120,8 @@ public class IKLegsControl : MonoBehaviour {
         Character = GetComponent<CharacterControl>();
         fsteps = GetComponent<Footsteps>();
         IK_feet = GetComponent<IKFeetAdjust>();
-        if(IK_feet == null) {
+        CharacterHeight = Character.characterHeight;
+        if (IK_feet == null) {
             IK_feet = Dfeet;    
         }
 
@@ -250,7 +252,7 @@ public class IKLegsControl : MonoBehaviour {
                 }else
                     MoveB = new Vector2(MoveC.x - 0.2f*CX, MoveC.y + heelLift + Mathf.Abs(Character.move.x)*5);
 
-                //FORWARDS - ASKELVALMIS
+                //FORWARDS - ASKELVALMIS JA TUKIJALAN VAIHTO
                 if (speed >= 1) {
                     speed = 0;
                     if (leftSupport) {
@@ -407,34 +409,50 @@ public class IKLegsControl : MonoBehaviour {
         //-2.25f MAX DOWN FORCE
 
         Vector2 newpose;
+        Vector2 chestpose;
         //Tasapainottele reunalla, jos askeletta ei löydy edestä
         AdjustToA = false;
        if (AdjustToA) {
             newpose = new Vector2(rootX + rootForceX, rootY + rootForceY + gaitFix + bottomDis + rootAdjustOnce);
-            if (CX > 0 && root.transform.position.x > MoveC.x)
-                root.transform.position = new Vector2(MoveC.x, root.transform.position.y);
-            else if (CX < 0 && root.transform.position.x < MoveC.x)
-                root.transform.position = new Vector2(MoveC.x, root.transform.position.y);
-            float c = SolverChest.transform.position.x - MoveC.x;
-            SolverChest.transform.localPosition = new Vector2(chestO.x - c*CX, chestO.y);
+            if (leftSupport) {
+                newpose = new Vector2(SolverLeft.transform.localPosition.x, rootY + rootForceY + gaitFix + bottomDis + rootAdjustOnce);
+                chestpose = new Vector2(SolverLeft.transform.localPosition.x, chestO.y);
+            }
+            else {
+                newpose = new Vector2(SolverRight.transform.localPosition.x, rootY + rootForceY + gaitFix + bottomDis + rootAdjustOnce);
+                chestpose = new Vector2(SolverRight.transform.localPosition.x, chestO.y);
+            }
+            //root.transform.position = new Vector2(MoveC.x, root.transform.position.y);
+            //float c = SolverChest.transform.position.x - MoveC.x;
+            //SolverChest.transform.localPosition = new Vector2(chestO.x - c*CX, chestO.y);
             //SolverChest.transform.localPosition = new Vector2(chestO.x, chestO.y);
             //if (newpose.y < -2.25f)
-               // newpose = new Vector3(newpose.x, -2.25f);
+            // newpose = new Vector3(newpose.x, -2.25f);
         }
        else {
             //nojaa eteenpäin kun on liikeessä
             newpose = new Vector2(rootX + rootForceX, rootY + rootForceY + gaitFix + bottomDis + rootAdjustOnce);
-            SolverChest.transform.localPosition = new Vector2(chestO.x + (Character.move.x*CX*1.5f), chestO.y);
-          //  if (newpose.y < -2.25f)
-               // newpose = new Vector3(newpose.x, -2.25f);
-       }
+            chestpose = new Vector2(chestO.x + (Character.move.x*CX*1.5f), chestO.y);
+
+            //  if (newpose.y < -2.25f)
+            // newpose = new Vector3(newpose.x, -2.25f);
+        }
+
 
         if (STANCE == STANCES.Crouching) {
             newpose = new Vector3(newpose.x, -2.25f);
-            SolverChest.transform.localPosition = new Vector2(chestO.x + 1f, chestO.y);
+            chestpose = new Vector2(chestO.x + Character.characterWidth/2, chestO.y - CharacterHeight*1.5f);
+            standingUpSpeed = 0.2f;
+        }
+        else if(standingUpSpeed < 0.99f) {
+            standingUpSpeed += Time.deltaTime;
+            if (standingUpSpeed > 0.99f)
+                standingUpSpeed = 0.99f;
         }
 
-        root.transform.localPosition = Vector2.LerpUnclamped(root.transform.localPosition, newpose, 0.9f);
+        SolverChest.transform.localPosition = Vector2.LerpUnclamped(SolverChest.transform.localPosition, chestpose, standingUpSpeed);
+        root.transform.localPosition = Vector2.LerpUnclamped(root.transform.localPosition, newpose, standingUpSpeed);
+
 
         rootAdjustOnce = 0;
         HillAdjust();
